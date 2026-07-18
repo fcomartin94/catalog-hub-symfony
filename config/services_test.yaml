@@ -1,0 +1,5 @@
+services:
+    Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface: '@security.user_password_hasher'
+    test.user_password_hasher:
+        alias: Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface
+        public: true
