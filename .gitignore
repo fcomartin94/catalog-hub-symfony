@@ -18,3 +18,7 @@
 /config/jwt/*.pem
 ###< lexik/jwt-authentication-bundle ###
 .DS_Store
+
+###> local env (dev secrets live in .env.local) ###
+/.env.dev
+###< local env ###

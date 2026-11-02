@@ -126,6 +126,14 @@ Database connection is configured in `.env` via `DATABASE_URL`, pointing at the
 `db` service on its internal container port (3306); port 3307 on the host is
 only for connecting external DB clients.
 
+Secrets are not committed. `.env` holds only safe defaults (empty `APP_SECRET`,
+placeholder JWT passphrase); create a git-ignored `.env.local` with your own values:
+
+```bash
+echo "APP_SECRET=$(openssl rand -hex 16)" >> .env.local
+echo "JWT_PASSPHRASE=$(openssl rand -hex 16)" >> .env.local
+```
+
 ```bash
 php bin/console doctrine:migrations:migrate
 php bin/console lexik:jwt:generate-keypair
@@ -159,3 +167,7 @@ store is required to run the suite.
 - [x] Multi-channel pricing (`StoreChannel`, `PriceList`)
 - [x] Outbound sync to PrestaShop/WooCommerce, tested against mocked responses
 - [x] Functional test suite (`ApiTestCase`)
+
+## License
+
+Released under the [MIT License](LICENSE).
