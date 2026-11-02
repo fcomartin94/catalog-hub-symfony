@@ -93,12 +93,16 @@ Read/write payload shape is controlled per property with serialization groups
 different fields to different contexts without a separate DTO layer.
 
 Authorization uses two mechanisms depending on the rule: a Symfony Voter on
-`Product` (`POST_VIEW`/`POST_EDIT`) for rules that depend on the object's own
+`Product` (`PRODUCT_VIEW`/`PRODUCT_EDIT`) for rules that depend on the object's own
 state — `ROLE_ADMIN` is granted both unconditionally, other roles are only
-granted `POST_VIEW` on published products and never `POST_EDIT` — and a flat
+granted `PRODUCT_VIEW` on published products and never `PRODUCT_EDIT` — and a flat
 `security: "is_granted('ROLE_ADMIN')"` check on `StoreChannel` and `PriceList`,
 where the rule is unconditionally about the caller's role and doesn't need to
-inspect the object. The sync endpoint (`POST /api/store_channels/{id}/sync`)
+inspect the object. A voter only runs on a single object, never on a collection, so
+`GET /api/products` is restricted separately by a Doctrine query extension
+(`PublishedProductsExtension`) that hides unpublished products from every role
+except `ROLE_ADMIN` — without it, a mobile token could list the drafts it cannot
+open one by one. The sync endpoint (`POST /api/store_channels/{id}/sync`)
 enforces its own admin-only check directly via Symfony's `Security` service in
 its controller, rather than relying solely on API Platform's declarative
 `security` attribute, since custom operations backed by a controller are the
@@ -106,12 +110,24 @@ one case where that attribute is not the natural fit.
 
 The outbound sync connectors (`PrestaShopSyncConnector`, `WooCommerceSyncConnector`)
 implement a shared `StoreSyncConnectorInterface` and translate the catalog into
-each platform's real API shape — PrestaShop's XML Webservice API (API key as
-the HTTP Basic Auth username) and WooCommerce's JSON REST API v3 (consumer
-key/secret, SKU-based product lookup). `StoreSyncService` syncs every `PriceList`
-in a channel and collects per-product failures instead of aborting the whole
-sync on the first error, so one rejected product doesn't take down the rest of
-a channel's sync.
+each platform's real API shape:
+
+- **PrestaShop** (XML Webservice, API key as the HTTP Basic username) identifies products
+  by its own numeric id, so a push looks the product up by `reference`, fetches the full
+  resource, updates price and active state, and PUTs it back to `/api/products/{id}`
+  with the read-only fields removed. Products that don't exist on the store are
+  reported as failures; creating them remotely is out of scope.
+- **WooCommerce** (JSON REST v3, consumer key/secret) looks the product up by SKU and
+  updates it with `PUT /products/{id}`, or creates it with `POST /products` if it
+  doesn't exist yet.
+
+Credentials come from environment variables (`PRESTASHOP_API_KEY`,
+`WOOCOMMERCE_CONSUMER_KEY`, `WOOCOMMERCE_CONSUMER_SECRET`, set in `.env.local`); there
+are no built-in defaults, and a missing credential is reported as a sync failure.
+`StoreSyncService` syncs every `PriceList` in a channel and collects per-product
+failures instead of aborting the whole sync on the first error. The connectors are
+verified against mocked HTTP responses shaped like each platform's documented API
+(request method, URL and body are asserted); they have not been run against a live store.
 
 ## Local environment setup
 

@@ -10,8 +10,8 @@ use Symfony\Component\Security\Core\User\UserInterface;
 
 final class ProductVoter extends Voter
 {
-    public const EDIT = 'POST_EDIT';
-    public const VIEW = 'POST_VIEW';
+    public const EDIT = 'PRODUCT_EDIT';
+    public const VIEW = 'PRODUCT_VIEW';
 
     protected function supports(string $attribute, mixed $subject): bool
     {

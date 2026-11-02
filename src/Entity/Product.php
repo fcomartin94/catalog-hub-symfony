@@ -22,11 +22,11 @@ use Symfony\Component\Serializer\Attribute\Groups;
     denormalizationContext: ['groups' => ['product:write']],
     operations: [
         new GetCollection(),
-        new Get(security: "is_granted('POST_VIEW', object)"),
-        new Post(securityPostDenormalize: "is_granted('POST_EDIT', object)"),
-        new Put(security: "is_granted('POST_EDIT', object)"),
-        new Patch(security: "is_granted('POST_EDIT', object)"),
-        new Delete(security: "is_granted('POST_EDIT', object)"),
+        new Get(security: "is_granted('PRODUCT_VIEW', object)"),
+        new Post(securityPostDenormalize: "is_granted('PRODUCT_EDIT', object)"),
+        new Put(security: "is_granted('PRODUCT_EDIT', object)"),
+        new Patch(security: "is_granted('PRODUCT_EDIT', object)"),
+        new Delete(security: "is_granted('PRODUCT_EDIT', object)"),
     ],
 )]
 #[ApiFilter(SearchFilter::class, properties: ['name' => 'partial', 'sku' => 'exact', 'category' => 'exact'])]

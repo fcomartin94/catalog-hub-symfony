@@ -103,9 +103,18 @@ final class StoreChannelSyncApiTest extends ApiTestCase
         // this request.
         $client = static::createClient();
 
-        $mockClient = new MockHttpClient([
-            new MockResponse('<prestashop><product><id>42</id></product></prestashop>', ['http_code' => 200]),
-        ]);
+        // PrestaShop is addressed by its own numeric id, so a push is three
+        // calls: look the product up by reference, fetch the full resource,
+        // then PUT it back with the synced fields changed.
+        $lookup = new MockResponse('<prestashop><products><product><id>42</id></product></products></prestashop>', ['http_code' => 200]);
+        $resource = new MockResponse(
+            '<prestashop><product><id>42</id><reference>COF-100</reference><price>10.000000</price><active>0</active>'
+            .'<manufacturer_name>Brew</manufacturer_name><quantity>5</quantity></product></prestashop>',
+            ['http_code' => 200],
+        );
+        $update = new MockResponse('<prestashop><product><id>42</id></product></prestashop>', ['http_code' => 200]);
+
+        $mockClient = new MockHttpClient([$lookup, $resource, $update]);
         $client->getContainer()->set('store_sync.http_client', $mockClient);
 
         $client->request('POST', '/api/store_channels/'.$channel->getId().'/sync', [
@@ -114,6 +123,91 @@ final class StoreChannelSyncApiTest extends ApiTestCase
 
         $this->assertResponseStatusCodeSame(200);
         $this->assertJsonContains(['synced' => 1, 'failed' => []]);
+
+        // The update goes to the resolved id, carries the new price and
+        // published state, and strips the fields PrestaShop treats as read-only.
+        $this->assertSame('PUT', $update->getRequestMethod());
+        $this->assertStringEndsWith('/api/products/42', $update->getRequestUrl());
+        $body = $update->getRequestOptions()['body'];
+        $this->assertStringContainsString('<price>14.900000</price>', $body);
+        $this->assertStringContainsString('<active>1</active>', $body);
+        $this->assertStringNotContainsString('manufacturer_name', $body);
+    }
+
+    public function testSyncReportsFailureWhenProductDoesNotExistOnTheStore(): void
+    {
+        $token = $this->createAdminAndToken();
+
+        $category = new Category();
+        $category->setName('Blends')->setSlug('blends');
+        $this->em->persist($category);
+
+        $product = new Product();
+        $product->setName('Unknown Roast')->setSlug('unknown')->setSku('COF-404')
+            ->setBasePrice('9.00')->setPublished(true)->setCategory($category);
+        $this->em->persist($product);
+
+        $channel = new StoreChannel();
+        $channel->setName('Brew & Co.')->setPlatform('prestashop')->setBaseUrl('https://brewco.example.com');
+        $this->em->persist($channel);
+
+        $priceList = new PriceList();
+        $priceList->setProduct($product)->setChannel($channel)->setPrice('9.90');
+        $this->em->persist($priceList);
+        $this->em->flush();
+
+        $client = static::createClient();
+        $client->getContainer()->set('store_sync.http_client', new MockHttpClient([
+            new MockResponse('<prestashop><products></products></prestashop>', ['http_code' => 200]),
+        ]));
+
+        $client->request('POST', '/api/store_channels/'.$channel->getId().'/sync', [
+            'headers' => ['Authorization' => 'Bearer '.$token],
+        ]);
+
+        $this->assertResponseStatusCodeSame(200);
+        $json = $client->getResponse()->toArray(false);
+        $this->assertSame(0, $json['synced']);
+        $this->assertStringContainsString('COF-404', $json['failed'][0]);
+    }
+
+    public function testWooCommerceSyncUpdatesAnExistingProductBySku(): void
+    {
+        $token = $this->createAdminAndToken();
+
+        $category = new Category();
+        $category->setName('Books')->setSlug('books');
+        $this->em->persist($category);
+
+        $product = new Product();
+        $product->setName('Dune')->setSlug('dune')->setSku('BOOK-1')
+            ->setBasePrice('10.00')->setPublished(true)->setCategory($category);
+        $this->em->persist($product);
+
+        $channel = new StoreChannel();
+        $channel->setName('Mythic Books')->setPlatform('woocommerce')->setBaseUrl('https://mythic.example.com');
+        $this->em->persist($channel);
+
+        $priceList = new PriceList();
+        $priceList->setProduct($product)->setChannel($channel)->setPrice('11.50');
+        $this->em->persist($priceList);
+        $this->em->flush();
+
+        $client = static::createClient();
+        $update = new MockResponse('{"id":77}', ['http_code' => 200]);
+        $client->getContainer()->set('store_sync.http_client', new MockHttpClient([
+            new MockResponse('[{"id":77,"sku":"BOOK-1"}]', ['http_code' => 200]),
+            $update,
+        ]));
+
+        $client->request('POST', '/api/store_channels/'.$channel->getId().'/sync', [
+            'headers' => ['Authorization' => 'Bearer '.$token],
+        ]);
+
+        $this->assertResponseStatusCodeSame(200);
+        $this->assertJsonContains(['synced' => 1, 'failed' => []]);
+        $this->assertSame('PUT', $update->getRequestMethod());
+        $this->assertStringEndsWith('/wp-json/wc/v3/products/77', $update->getRequestUrl());
     }
 
     public function testSyncReportsFailureWithoutAbortingRequest(): void

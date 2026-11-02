@@ -140,4 +140,32 @@ final class ProductApiTest extends ApiTestCase
 
         $this->assertResponseStatusCodeSame(403);
     }
+
+    public function testMobileAppCollectionOnlyContainsPublishedProducts(): void
+    {
+        $this->createUser('mobile-list@test.local', 'password1234', ['ROLE_MOBILE_APP']);
+        $token = $this->getToken('mobile-list@test.local', 'password1234');
+
+        $category = new Category();
+        $category->setName('Blends')->setSlug('blends');
+        $this->em->persist($category);
+
+        foreach ([['Live Blend', 'live-blend', 'LIVE-001', true], ['Draft Blend', 'draft-blend-list', 'DRAFT-001', false]] as [$name, $slug, $sku, $published]) {
+            $product = new Product();
+            $product->setName($name)->setSlug($slug)->setSku($sku)->setBasePrice('7.50')
+                ->setPublished($published)->setCategory($category);
+            $this->em->persist($product);
+        }
+        $this->em->flush();
+
+        $client = static::createClient();
+        $client->request('GET', '/api/products', [
+            'headers' => ['Authorization' => 'Bearer '.$token],
+        ]);
+
+        $this->assertResponseIsSuccessful();
+        $skus = array_column($client->getResponse()->toArray()['member'] ?? $client->getResponse()->toArray()['hydra:member'] ?? [], 'sku');
+        $this->assertContains('LIVE-001', $skus);
+        $this->assertNotContains('DRAFT-001', $skus);
+    }
 }
